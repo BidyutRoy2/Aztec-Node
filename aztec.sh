@@ -1,133 +1,142 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
 CYAN='\033[0;36m'
+LIGHTBLUE='\033[1;34m'
+RED='\033[1;31m'
+GREEN='\033[1;32m'
+PURPLE='\033[1;35m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-echo -e "${CYAN}${BOLD}"
-echo "-----------------------------------------------------"
-echo "   One Click Setup Aztec Sequencer - HiddenGem - t.me/hiddengemnews "
-echo "-----------------------------------------------------"
-echo ""
+curl -s https://raw.githubusercontent.com/BidyutRoy2/BidyutRoy2/main/logo.sh | bash
+sleep 3
 
-# ====================================================
-# Aztec alpha-testnet full node automated installation & startup script
-# Version: v0.85.0-alpha-testnet.5
-# For Ubuntu/Debian only, requires sudo privileges
-# ====================================================
+echo -e "\n${CYAN}${BOLD}---- CHECKING DOCKER INSTALLATION ----${RESET}\n"
+if ! command -v docker &> /dev/null; then
+  echo -e "${LIGHTBLUE}${BOLD}Docker not found. Installing Docker...${RESET}"
+  curl -fsSL https://get.docker.com -o get-docker.sh
+  sh get-docker.sh
+  sudo usermod -aG docker $USER
+  rm get-docker.sh
+  echo -e "${GREEN}${BOLD}Docker installed successfully!${RESET}"
+fi
 
-if [ "$(id -u)" -ne 0 ]; then
-  echo "⚠️ This script must be run with root (or sudo) privileges."
+echo -e "${LIGHTBLUE}${BOLD}Setting up Docker to run without sudo for this session...${RESET}"
+if ! getent group docker > /dev/null; then
+  sudo groupadd docker
+fi
+
+sudo usermod -aG docker $USER
+
+if [ -S /var/run/docker.sock ]; then
+  sudo chmod 666 /var/run/docker.sock
+  echo -e "${GREEN}${BOLD}Docker socket permissions updated.${RESET}"
+else
+  echo -e "${RED}${BOLD}Docker socket not found. Docker daemon might not be running.${RESET}"
+  echo -e "${LIGHTBLUE}${BOLD}Starting Docker daemon...${RESET}"
+  sudo systemctl start docker
+  sudo chmod 666 /var/run/docker.sock
+fi
+
+if docker info &>/dev/null; then
+  echo -e "${GREEN}${BOLD}Docker is now working without sudo.${RESET}"
+else
+  echo -e "${RED}${BOLD}Failed to configure Docker to run without sudo. Using sudo for Docker commands.${RESET}"
+  DOCKER_CMD="sudo docker"
+fi
+
+echo -e "\n${CYAN}${BOLD}---- INSTALLING DEPENDENCIES ----${RESET}\n"
+sudo apt-get update
+sudo apt-get install -y curl screen net-tools psmisc jq
+
+[ -d /root/.aztec/alpha-testnet ] && rm -r /root/.aztec/alpha-testnet
+
+AZTEC_PATH=$HOME/.aztec
+BIN_PATH=$AZTEC_PATH/bin
+mkdir -p $BIN_PATH
+
+echo -e "\n${CYAN}${BOLD}---- INSTALLING AZTEC TOOLKIT ----${RESET}\n"
+
+if [ -n "$DOCKER_CMD" ]; then
+  export DOCKER_CMD="$DOCKER_CMD"
+fi
+
+curl -fsSL https://install.aztec.network | bash
+
+if ! command -v aztec >/dev/null 2>&1; then
+    echo -e "${LIGHTBLUE}${BOLD}Aztec CLI not found in PATH. Adding it for current session...${RESET}"
+    export PATH="$PATH:$HOME/.aztec/bin"
+    
+    if ! grep -Fxq 'export PATH=$PATH:$HOME/.aztec/bin' "$HOME/.bashrc"; then
+        echo 'export PATH=$PATH:$HOME/.aztec/bin' >> "$HOME/.bashrc"
+        echo -e "${GREEN}${BOLD}Added Aztec to PATH in .bashrc${RESET}"
+    fi
+fi
+
+if [ -f "$HOME/.bash_profile" ]; then
+    source "$HOME/.bash_profile"
+elif [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc"
+fi
+
+export PATH="$PATH:$HOME/.aztec/bin"
+
+if ! command -v aztec &> /dev/null; then
+  echo -e "${RED}${BOLD}ERROR: Aztec installation failed. Please check the logs above.${RESET}"
   exit 1
 fi
 
-if ! command -v docker &> /dev/null || ! command -v docker-compose &> /dev/null; then
-  echo "🐋 Docker or Docker Compose not found. Installing..."
-  apt-get update
-  apt-get install -y \
-    apt-transport-https \
-    ca-certificates \
-    curl \
-    gnupg-agent \
-    software-properties-common
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
-  add-apt-repository \
-    "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
-    $(lsb_release -cs) stable"
-  apt-get update
-  apt-get install -y docker-ce docker-ce-cli containerd.io
-  curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" \
-    -o /usr/local/bin/docker-compose
-  chmod +x /usr/local/bin/docker-compose
-else
-  echo "🐋 Docker and Docker Compose are already installed."
-fi
-
-if ! command -v node &> /dev/null; then
-  echo "🟢 Node.js not found. Installing the latest version..."
-  curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -
-  apt-get install -y nodejs
-else
-  echo "🟢 Node.js is already installed."
-fi
-
-echo "⚙️ Installing Aztec CLI and preparing alpha-testnet..."
-curl -sL https://install.aztec.network | bash
-
-export PATH="$HOME/.aztec/bin:$PATH"
-
-if ! command -v aztec-up &> /dev/null; then
-  echo "❌ Aztec CLI installation failed."
-  exit 1
-fi
-
+echo -e "\n${CYAN}${BOLD}---- UPDATING AZTEC TO ALPHA-TESTNET ----${RESET}\n"
 aztec-up alpha-testnet
 
-echo -e "\n📋 Instructions for obtaining RPC URLs:"
-echo "  - L1 Execution Client (EL) RPC URL:"
-echo "    1. Sign up or log in at https://dashboard.alchemy.com/"
-echo "    2. Create a new app for the Sepolia testnet"
-echo "    3. Copy the HTTPS URL (e.g., https://eth-sepolia.g.alchemy.com/v2/<your-key>)"
-echo ""
-echo "  - L1 Consensus (CL) RPC URL:"
-echo "    1. Sign up or log in at https://drpc.org/"
-echo "    2. Create an API key for the Sepolia testnet"
-echo "    3. Copy the HTTPS URL (e.g., https://lb.drpc.org/ogrpc?network=sepolia&dkey=<your-key>)"
-echo ""
-
-read -p "▶️ L1 Execution Client (EL) RPC URL: " ETH_RPC
-read -p "▶️ L1 Consensus (CL) RPC URL: " CONS_RPC
-read -p "▶️ Blob Sink URL (press Enter if none): " BLOB_URL
-read -p "▶️ Validator Private Key: " VALIDATOR_PRIVATE_KEY
-
-echo "🌐 Fetching public IP..."
-PUBLIC_IP=$(curl -s ifconfig.me || echo "127.0.0.1")
-echo "    → $PUBLIC_IP"
-
-cat > .env <<EOF
-ETHEREUM_HOSTS="$ETH_RPC"
-L1_CONSENSUS_HOST_URLS="$CONS_RPC"
-P2P_IP="$PUBLIC_IP"
-VALIDATOR_PRIVATE_KEY="$VALIDATOR_PRIVATE_KEY"
-DATA_DIRECTORY="/data"
-LOG_LEVEL="debug"
-EOF
-
-if [ -n "$BLOB_URL" ]; then
-  echo "BLOB_SINK_URL=\"$BLOB_URL\"" >> .env
+echo -e "\n${CYAN}${BOLD}---- CONFIGURING NODE ----${RESET}\n"
+IP=$(curl -s https://api.ipify.org)
+if [ -z "$IP" ]; then
+    IP=$(curl -s http://checkip.amazonaws.com)
+fi
+if [ -z "$IP" ]; then
+    IP=$(curl -s https://ifconfig.me)
+fi
+if [ -z "$IP" ]; then
+    echo -e "${LIGHTBLUE}${BOLD}Could not determine IP address automatically.${RESET}"
+    read -p "Please enter your VPS/WSL IP address: " IP
 fi
 
-BLOB_FLAG=""
-if [ -n "$BLOB_URL" ]; then
-  BLOB_FLAG="--sequencer.blobSinkUrl \$BLOB_SINK_URL"
+echo -e "${LIGHTBLUE}${BOLD}Visit ${PURPLE}https://dashboard.alchemy.com/apps${RESET}${LIGHTBLUE}${BOLD} or ${PURPLE}https://developer.metamask.io/register${RESET}${LIGHTBLUE}${BOLD} to create an account and get a Sepolia RPC URL.${RESET}"
+read -p "Enter Your Sepolia Ethereum RPC URL: " L1_RPC_URL
+
+echo -e "\n${LIGHTBLUE}${BOLD}Visit ${PURPLE}https://chainstack.com/global-nodes${RESET}${LIGHTBLUE}${BOLD} to create an account and get beacon RPC URL.${RESET}"
+read -p "Enter Your Sepolia Ethereum BEACON URL: " L1_CONSENSUS_URL
+
+echo -e "\n${LIGHTBLUE}${BOLD}Please create a new EVM wallet, fund it with Sepolia Faucet and then provide the private key.${RESET}"
+read -p "Enter your new evm wallet private key (with 0x prefix): " VALIDATOR_PRIVATE_KEY
+read -p "Enter the wallet address associated with the private key you just provided: " COINBASE_ADDRESS
+
+echo -e "\n${CYAN}${BOLD}---- CHECKING PORT AVAILABILITY ----${RESET}\n"
+if netstat -tuln | grep -q ":8080 "; then
+    echo -e "${LIGHTBLUE}${BOLD}Port 8080 is in use. Attempting to free it...${RESET}"
+    sudo fuser -k 8080/tcp
+    sleep 2
+    echo -e "${GREEN}${BOLD}Port 8080 has been freed successfully.${RESET}"
+else
+    echo -e "${GREEN}${BOLD}Port 8080 is already free and available.${RESET}"
 fi
 
-cat > docker-compose.yml <<EOF
-version: "3.8"
-services:
-  node:
-    image: aztecprotocol/aztec:0.85.0-alpha-testnet.5
-    network_mode: host
-    environment:
-      - ETHEREUM_HOSTS=\${ETHEREUM_HOSTS}
-      - L1_CONSENSUS_HOST_URLS=\${L1_CONSENSUS_HOST_URLS}
-      - P2P_IP=\${P2P_IP}
-      - VALIDATOR_PRIVATE_KEY=\${VALIDATOR_PRIVATE_KEY}
-      - DATA_DIRECTORY=\${DATA_DIRECTORY}
-      - LOG_LEVEL=\${LOG_LEVEL}
-      - BLOB_SINK_URL=\${BLOB_SINK_URL:-}
-    entrypoint: >
-      sh -c 'node --no-warnings /usr/src/yarn-project/aztec/dest/bin/index.js start --network alpha-testnet --node --archiver --sequencer $BLOB_FLAG'
-    volumes:
-      - $(pwd)/data:/data
-EOF
+echo -e "\n${CYAN}${BOLD}---- STARTING AZTEC NODE ----${RESET}\n"
+cat > $HOME/start_aztec_node.sh << EOL
+#!/bin/bash
+export PATH=\$PATH:\$HOME/.aztec/bin
+aztec start --node --archiver --sequencer \\
+  --network alpha-testnet \\
+  --port 8080 \\
+  --l1-rpc-urls $L1_RPC_URL \\
+  --l1-consensus-host-urls $L1_CONSENSUS_URL \\
+  --sequencer.validatorPrivateKey $VALIDATOR_PRIVATE_KEY \\
+  --sequencer.coinbase $COINBASE_ADDRESS \\
+  --p2p.p2pIp $IP
+EOL
 
-mkdir -p data
+chmod +x $HOME/start_aztec_node.sh
+screen -dmS aztec $HOME/start_aztec_node.sh
 
-echo "🚀 Starting Aztec full node (docker-compose up -d)..."
-docker-compose up -d
-
-echo -e "\n✅ Installation and startup completed!"
-echo "   - Check logs: docker-compose logs -f"
-echo "   - Data directory: $(pwd)/data"
+echo -e "${GREEN}${BOLD}Aztec node started successfully in a screen session.${RESET}\n"
